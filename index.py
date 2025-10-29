@@ -1,0 +1,381 @@
+from PIL import Image
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+import threading
+
+class ColoredASCIIArtGenerator:
+    def __init__(self, width=120):
+        """
+        Initialize the ASCII art generator.
+        
+        Args:
+            width: Width of the ASCII art in characters
+        """
+        self.width = width
+        # Detailed ASCII characters from darkest to lightest
+        self.ascii_chars = '@%#*+=-:. '
+        
+    def resize_image(self, img, new_width):
+        """Resize image maintaining aspect ratio."""
+        width, height = img.size
+        aspect_ratio = height / width
+        # Characters are taller than wide, so adjust
+        new_height = int(aspect_ratio * new_width * 0.55)
+        return img.resize((new_width, new_height))
+    
+    def get_ascii_char(self, pixel_value):
+        """Map pixel brightness to ASCII character."""
+        return self.ascii_chars[pixel_value * len(self.ascii_chars) // 256]
+    
+    def rgb_to_hex(self, r, g, b):
+        """Convert RGB to hex color."""
+        return f'#{r:02x}{g:02x}{b:02x}'
+    
+    def generate_ascii_art(self, image_path, use_color=True, callback=None):
+        """
+        Generate ASCII art from an image.
+        
+        Args:
+            image_path: Path to the input image
+            use_color: Whether to use colors
+            callback: Function to call with progress updates
+        
+        Returns:
+            Tuple of (ascii_text, color_data) where color_data is list of (char, color) tuples per line
+        """
+        try:
+            # Open and process image
+            img = Image.open(image_path)
+            img = self.resize_image(img, self.width)
+            img_gray = img.convert('L')  # Convert to grayscale for ASCII mapping
+            img_color = img.convert('RGB') if use_color else None
+            
+            # Generate ASCII art
+            ascii_lines = []
+            color_data = []  # Store color info separately
+            total_lines = img_gray.height
+            
+            for y in range(img_gray.height):
+                if callback:
+                    callback(int((y / total_lines) * 100))
+                
+                line_chars = []
+                line_colors = []
+                
+                for x in range(img_gray.width):
+                    # Get brightness
+                    brightness = img_gray.getpixel((x, y))
+                    char = self.get_ascii_char(brightness)
+                    line_chars.append(char)
+                    
+                    if use_color and img_color:
+                        # Get color
+                        r, g, b = img_color.getpixel((x, y))
+                        color = self.rgb_to_hex(r, g, b)
+                        line_colors.append(color)
+                    else:
+                        line_colors.append(None)
+                
+                ascii_lines.append(''.join(line_chars))
+                color_data.append(line_colors)
+            
+            if callback:
+                callback(100)
+            
+            return '\n'.join(ascii_lines), color_data
+            
+        except Exception as e:
+            raise Exception(f"Error generating ASCII art: {str(e)}")
+
+
+class ASCIIArtGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Earth's ASCII Art Generator")
+        self.root.geometry("900x700")
+        self.root.resizable(True, True)
+        
+        self.image_path = None
+        self.ascii_result = None
+        self.color_data = None
+        self.dark_mode = True
+        
+        # Configure style
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        self.setup_ui()
+        self.apply_theme()
+    
+    def setup_ui(self):
+        # Main container
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Configure grid weights
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+        
+        # Header frame with title and theme toggle
+        header_frame = ttk.Frame(main_frame)
+        header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=10)
+        header_frame.columnconfigure(0, weight=1)
+        
+        title_label = ttk.Label(header_frame, text="🎨 Earth's ASCII Art Generator", 
+                               font=('Arial', 16, 'bold'))
+        title_label.grid(row=0, column=0, sticky=tk.W)
+        
+        # Theme toggle button
+        self.theme_btn = ttk.Button(header_frame, text="☀️ Light Mode", 
+                                    command=self.toggle_theme, width=12)
+        self.theme_btn.grid(row=0, column=1, sticky=tk.E, padx=5)
+        
+        # Controls frame
+        controls_frame = ttk.LabelFrame(main_frame, text="Settings", padding="10")
+        controls_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=10)
+        
+        # File selection
+        file_frame = ttk.Frame(controls_frame)
+        file_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        
+        self.file_label = ttk.Label(file_frame, text="No image selected")
+        self.file_label.pack(side=tk.LEFT, padx=5)
+        
+        select_btn = ttk.Button(file_frame, text="📁 Select Image", 
+                               command=self.select_image)
+        select_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Width control
+        ttk.Label(controls_frame, text="Width (characters):").grid(row=1, column=0, 
+                                                                    sticky=tk.W, pady=5)
+        self.width_var = tk.IntVar(value=100)
+        width_spinbox = ttk.Spinbox(controls_frame, from_=40, to=200, 
+                                    textvariable=self.width_var, width=10)
+        width_spinbox.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # Color checkbox
+        self.color_var = tk.BooleanVar(value=True)
+        color_check = ttk.Checkbutton(controls_frame, text="Use colors", 
+                                     variable=self.color_var)
+        color_check.grid(row=1, column=2, sticky=tk.W, padx=20, pady=5)
+        
+        # Generate button
+        self.generate_btn = ttk.Button(controls_frame, text="✨ Generate ASCII Art", 
+                                      command=self.generate_art, state='disabled')
+        self.generate_btn.grid(row=2, column=0, columnspan=3, pady=10)
+        
+        # Progress bar
+        self.progress = ttk.Progressbar(controls_frame, mode='determinate', length=300)
+        self.progress.grid(row=3, column=0, columnspan=3, pady=5)
+        
+        # Output frame
+        output_frame = ttk.LabelFrame(main_frame, text="ASCII Art Output", padding="10")
+        output_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        output_frame.columnconfigure(0, weight=1)
+        output_frame.rowconfigure(0, weight=1)
+        
+        # Text widget with scrollbars
+        text_scroll_y = ttk.Scrollbar(output_frame, orient=tk.VERTICAL)
+        text_scroll_x = ttk.Scrollbar(output_frame, orient=tk.HORIZONTAL)
+        
+        self.output_text = tk.Text(output_frame, wrap=tk.NONE, 
+                                   yscrollcommand=text_scroll_y.set,
+                                   xscrollcommand=text_scroll_x.set,
+                                   font=('Courier', 7))
+        
+        text_scroll_y.config(command=self.output_text.yview)
+        text_scroll_x.config(command=self.output_text.xview)
+        
+        self.output_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        text_scroll_y.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        text_scroll_x.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        
+        # Save button
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=3, column=0, pady=10)
+        
+        self.save_btn = ttk.Button(button_frame, text="💾 Save to File", 
+                                   command=self.save_art, state='disabled')
+        self.save_btn.pack(side=tk.LEFT, padx=5)
+        
+        copy_btn = ttk.Button(button_frame, text="📋 Copy to Clipboard", 
+                             command=self.copy_to_clipboard, state='disabled')
+        copy_btn.pack(side=tk.LEFT, padx=5)
+        self.copy_btn = copy_btn
+    
+    def toggle_theme(self):
+        """Toggle between light and dark mode."""
+        self.dark_mode = not self.dark_mode
+        self.apply_theme()
+        
+        # Re-display ASCII art with new theme if it exists
+        if self.ascii_result and self.color_data:
+            self.display_result()
+    
+    def apply_theme(self):
+        """Apply the current theme."""
+        if self.dark_mode:
+            self.output_text.config(bg='#1e1e1e', fg='#d4d4d4', insertbackground='white')
+            self.theme_btn.config(text="☀️ Light Mode")
+        else:
+            self.output_text.config(bg='#ffffff', fg='#000000', insertbackground='black')
+            self.theme_btn.config(text="🌙 Dark Mode")
+    
+    def select_image(self):
+        """Open file dialog to select an image."""
+        file_types = [
+            ('Image files', '*.jpg *.jpeg *.png *.bmp *.gif *.tiff'),
+            ('All files', '*.*')
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select an image",
+            filetypes=file_types,
+            initialdir="~"
+        )
+        
+        if filename:
+            self.image_path = filename
+            # Show filename in label
+            import os
+            self.file_label.config(text=os.path.basename(filename))
+            self.generate_btn.config(state='normal')
+    
+    def update_progress(self, value):
+        """Update progress bar."""
+        self.progress['value'] = value
+        self.root.update_idletasks()
+    
+    def generate_art(self):
+        """Generate ASCII art in a separate thread."""
+        if not self.image_path:
+            messagebox.showwarning("No Image", "Please select an image first!")
+            return
+        
+        # Disable button during generation
+        self.generate_btn.config(state='disabled')
+        self.output_text.delete(1.0, tk.END)
+        self.progress['value'] = 0
+        
+        def generate_thread():
+            try:
+                generator = ColoredASCIIArtGenerator(width=self.width_var.get())
+                self.ascii_result, self.color_data = generator.generate_ascii_art(
+                    self.image_path, 
+                    use_color=self.color_var.get(),
+                    callback=self.update_progress
+                )
+                
+                # Display result
+                self.root.after(0, self.display_result)
+                
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+                self.root.after(0, lambda: self.generate_btn.config(state='normal'))
+        
+        thread = threading.Thread(target=generate_thread, daemon=True)
+        thread.start()
+    
+    def display_result(self):
+        """Display the generated ASCII art with proper coloring."""
+        self.output_text.delete(1.0, tk.END)
+        
+        # Clear existing tags
+        for tag in self.output_text.tag_names():
+            self.output_text.tag_delete(tag)
+        
+        lines = self.ascii_result.split('\n')
+        
+        for line_idx, line in enumerate(lines):
+            if line_idx < len(self.color_data):
+                colors = self.color_data[line_idx]
+                
+                for char_idx, char in enumerate(line):
+                    if char_idx < len(colors) and colors[char_idx]:
+                        # Create unique tag for this color
+                        tag_name = f"color_{colors[char_idx]}"
+                        
+                        # Insert character with tag
+                        self.output_text.insert(tk.END, char, tag_name)
+                        
+                        # Configure tag with color
+                        self.output_text.tag_config(tag_name, foreground=colors[char_idx])
+                    else:
+                        self.output_text.insert(tk.END, char)
+                
+                self.output_text.insert(tk.END, '\n')
+            else:
+                self.output_text.insert(tk.END, line + '\n')
+        
+        self.generate_btn.config(state='normal')
+        self.save_btn.config(state='normal')
+        self.copy_btn.config(state='normal')
+        messagebox.showinfo("Success", "ASCII art generated successfully!")
+    
+    def save_art(self):
+        """Save ASCII art to a file."""
+        if not self.ascii_result:
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("HTML files", "*.html"), ("All files", "*.*")]
+        )
+        
+        if filename:
+            try:
+                if filename.endswith('.html'):
+                    # Save as HTML with colors
+                    self.save_as_html(filename)
+                else:
+                    # Save as plain text
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        f.write(self.ascii_result)
+                messagebox.showinfo("Success", f"ASCII art saved to {filename}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save file: {str(e)}")
+    
+    def save_as_html(self, filename):
+        """Save ASCII art as HTML with colors."""
+        html = ['<!DOCTYPE html>\n<html>\n<head>\n<style>']
+        html.append('body { background-color: ' + ('#1e1e1e' if self.dark_mode else '#ffffff') + '; }')
+        html.append('pre { font-family: monospace; font-size: 10px; line-height: 1.2; }')
+        html.append('</style>\n</head>\n<body>\n<pre>')
+        
+        lines = self.ascii_result.split('\n')
+        
+        for line_idx, line in enumerate(lines):
+            if line_idx < len(self.color_data):
+                colors = self.color_data[line_idx]
+                for char_idx, char in enumerate(line):
+                    if char_idx < len(colors) and colors[char_idx]:
+                        html.append(f'<span style="color:{colors[char_idx]}">{char}</span>')
+                    else:
+                        html.append(char)
+                html.append('\n')
+        
+        html.append('</pre>\n</body>\n</html>')
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(''.join(html))
+    
+    def copy_to_clipboard(self):
+        """Copy ASCII art to clipboard."""
+        if not self.ascii_result:
+            return
+        
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.ascii_result)
+        messagebox.showinfo("Success", "ASCII art copied to clipboard!")
+
+
+def main():
+    root = tk.Tk()
+    app = ASCIIArtGUI(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
