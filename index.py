@@ -2,6 +2,7 @@ from PIL import Image
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
+import time
 
 class ColoredASCIIArtGenerator:
     def __init__(self, width=120):
@@ -31,7 +32,7 @@ class ColoredASCIIArtGenerator:
         """Convert RGB to hex color."""
         return f'#{r:02x}{g:02x}{b:02x}'
     
-    def generate_ascii_art(self, image_path, use_color=True, callback=None):
+    def generate_ascii_art(self, image_path, use_color=True, callback=None, line_callback=None):
         """
         Generate ASCII art from an image.
         
@@ -39,6 +40,7 @@ class ColoredASCIIArtGenerator:
             image_path: Path to the input image
             use_color: Whether to use colors
             callback: Function to call with progress updates
+            line_callback: Function to call when each line is generated (for animation)
         
         Returns:
             Tuple of (ascii_text, color_data) where color_data is list of (char, color) tuples per line
@@ -76,8 +78,13 @@ class ColoredASCIIArtGenerator:
                     else:
                         line_colors.append(None)
                 
-                ascii_lines.append(''.join(line_chars))
+                line_text = ''.join(line_chars)
+                ascii_lines.append(line_text)
                 color_data.append(line_colors)
+                
+                # Call line callback for animation
+                if line_callback:
+                    line_callback(y, line_text, line_colors)
             
             if callback:
                 callback(100)
@@ -99,6 +106,7 @@ class ASCIIArtGUI:
         self.ascii_result = None
         self.color_data = None
         self.dark_mode = True
+        self.is_generating = False
         
         # Configure style
         style = ttk.Style()
@@ -170,6 +178,10 @@ class ASCIIArtGUI:
         self.progress = ttk.Progressbar(controls_frame, mode='determinate', length=300)
         self.progress.grid(row=3, column=0, columnspan=3, pady=5)
         
+        # Status label
+        self.status_label = ttk.Label(controls_frame, text="Ready", foreground='green')
+        self.status_label.grid(row=4, column=0, columnspan=3, pady=2)
+        
         # Output frame
         output_frame = ttk.LabelFrame(main_frame, text="ASCII Art Output", padding="10")
         output_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
@@ -211,7 +223,7 @@ class ASCIIArtGUI:
         self.apply_theme()
         
         # Re-display ASCII art with new theme if it exists
-        if self.ascii_result and self.color_data:
+        if self.ascii_result and self.color_data and not self.is_generating:
             self.display_result()
     
     def apply_theme(self):
@@ -248,16 +260,59 @@ class ASCIIArtGUI:
         self.progress['value'] = value
         self.root.update_idletasks()
     
+    def update_status(self, message, color='blue'):
+        """Update status label."""
+        self.status_label.config(text=message, foreground=color)
+        self.root.update_idletasks()
+    
+    def animate_line(self, line_num, line_text, line_colors):
+        """Animate a single line being added to the output."""
+        def add_line():
+            # Calculate animation speed based on total lines
+            # Faster for more lines to keep total time reasonable
+            delay = max(5, min(50, 2000 // (self.width_var.get() // 2)))
+            
+            if line_colors and any(line_colors):
+                # Add colored line
+                for char_idx, char in enumerate(line_text):
+                    if char_idx < len(line_colors) and line_colors[char_idx]:
+                        tag_name = f"color_{line_colors[char_idx]}"
+                        self.output_text.insert(tk.END, char, tag_name)
+                        self.output_text.tag_config(tag_name, foreground=line_colors[char_idx])
+                    else:
+                        self.output_text.insert(tk.END, char)
+            else:
+                # Add plain line
+                self.output_text.insert(tk.END, line_text)
+            
+            self.output_text.insert(tk.END, '\n')
+            
+            # Auto-scroll to show latest content
+            self.output_text.see(tk.END)
+            
+        # Schedule the line addition on the main thread
+        self.root.after(0, add_line)
+        
+        # Small delay between lines for animation effect
+        time.sleep(0.02)
+    
     def generate_art(self):
-        """Generate ASCII art in a separate thread."""
+        """Generate ASCII art in a separate thread with animation."""
         if not self.image_path:
             messagebox.showwarning("No Image", "Please select an image first!")
             return
         
         # Disable button during generation
+        self.is_generating = True
         self.generate_btn.config(state='disabled')
         self.output_text.delete(1.0, tk.END)
         self.progress['value'] = 0
+        
+        # Clear existing tags
+        for tag in self.output_text.tag_names():
+            self.output_text.tag_delete(tag)
+        
+        self.update_status("🎨 Generating ASCII art...", 'blue')
         
         def generate_thread():
             try:
@@ -265,21 +320,35 @@ class ASCIIArtGUI:
                 self.ascii_result, self.color_data = generator.generate_ascii_art(
                     self.image_path, 
                     use_color=self.color_var.get(),
-                    callback=self.update_progress
+                    callback=self.update_progress,
+                    line_callback=self.animate_line
                 )
                 
-                # Display result
-                self.root.after(0, self.display_result)
+                # Finalize
+                self.root.after(0, self.finalize_generation)
                 
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
                 self.root.after(0, lambda: self.generate_btn.config(state='normal'))
+                self.root.after(0, lambda: self.update_status("Error occurred", 'red'))
+                self.is_generating = False
         
         thread = threading.Thread(target=generate_thread, daemon=True)
         thread.start()
     
+    def finalize_generation(self):
+        """Finalize the generation process."""
+        self.is_generating = False
+        self.generate_btn.config(state='normal')
+        self.save_btn.config(state='normal')
+        self.copy_btn.config(state='normal')
+        self.update_status("✅ Generation complete!", 'green')
+        
+        # Show completion message after a short delay
+        self.root.after(500, lambda: messagebox.showinfo("Success", "ASCII art generated successfully!"))
+    
     def display_result(self):
-        """Display the generated ASCII art with proper coloring."""
+        """Display the generated ASCII art with proper coloring (for theme switching)."""
         self.output_text.delete(1.0, tk.END)
         
         # Clear existing tags
@@ -308,11 +377,6 @@ class ASCIIArtGUI:
                 self.output_text.insert(tk.END, '\n')
             else:
                 self.output_text.insert(tk.END, line + '\n')
-        
-        self.generate_btn.config(state='normal')
-        self.save_btn.config(state='normal')
-        self.copy_btn.config(state='normal')
-        messagebox.showinfo("Success", "ASCII art generated successfully!")
     
     def save_art(self):
         """Save ASCII art to a file."""
