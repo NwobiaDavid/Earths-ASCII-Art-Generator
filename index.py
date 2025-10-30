@@ -216,6 +216,11 @@ class ASCIIArtGUI:
                              command=self.copy_to_clipboard, state='disabled')
         copy_btn.pack(side=tk.LEFT, padx=5)
         self.copy_btn = copy_btn
+        
+        fullscreen_btn = ttk.Button(button_frame, text="🖼️ Fullscreen View", 
+                                    command=self.show_fullscreen, state='disabled')
+        fullscreen_btn.pack(side=tk.LEFT, padx=5)
+        self.fullscreen_btn = fullscreen_btn
     
     def toggle_theme(self):
         """Toggle between light and dark mode."""
@@ -342,6 +347,7 @@ class ASCIIArtGUI:
         self.generate_btn.config(state='normal')
         self.save_btn.config(state='normal')
         self.copy_btn.config(state='normal')
+        self.fullscreen_btn.config(state='normal')
         self.update_status("✅ Generation complete!", 'green')
         
         # Show completion message after a short delay
@@ -433,6 +439,86 @@ class ASCIIArtGUI:
         self.root.clipboard_clear()
         self.root.clipboard_append(self.ascii_result)
         messagebox.showinfo("Success", "ASCII art copied to clipboard!")
+    
+    def show_fullscreen(self):
+        """Display ASCII art in fullscreen mode."""
+        if not self.ascii_result or not self.color_data:
+            return
+        
+        # Create fullscreen window
+        fullscreen_window = tk.Toplevel(self.root)
+        fullscreen_window.title("Fullscreen ASCII Art")
+        
+        # Set fullscreen
+        fullscreen_window.attributes('-fullscreen', True)
+        
+        # Apply theme background
+        bg_color = '#1e1e1e' if self.dark_mode else '#ffffff'
+        fullscreen_window.configure(bg=bg_color)
+        
+        # Create frame for centering
+        center_frame = tk.Frame(fullscreen_window, bg=bg_color)
+        center_frame.place(relx=0.5, rely=0.5, anchor='center')
+        
+        # Calculate the actual width and height of the ASCII art
+        lines = self.ascii_result.split('\n')
+        max_width = max(len(line) for line in lines) if lines else 0
+        height = len(lines)
+        
+        # Create text widget for ASCII art with fixed dimensions
+        text_widget = tk.Text(center_frame, 
+                             wrap=tk.NONE,
+                             font=('Courier', 8),
+                             bg=bg_color,
+                             fg='#d4d4d4' if self.dark_mode else '#000000',
+                             relief=tk.FLAT,
+                             borderwidth=0,
+                             highlightthickness=0,
+                             cursor='none',
+                             width=max_width,
+                             height=height)
+        text_widget.pack()
+        
+        # Populate text widget with colored ASCII art
+        lines = self.ascii_result.split('\n')
+        
+        for line_idx, line in enumerate(lines):
+            if line_idx < len(self.color_data):
+                colors = self.color_data[line_idx]
+                
+                for char_idx, char in enumerate(line):
+                    if char_idx < len(colors) and colors[char_idx]:
+                        tag_name = f"fs_color_{colors[char_idx]}"
+                        text_widget.insert(tk.END, char, tag_name)
+                        text_widget.tag_config(tag_name, foreground=colors[char_idx])
+                    else:
+                        text_widget.insert(tk.END, char)
+                
+                text_widget.insert(tk.END, '\n')
+            else:
+                text_widget.insert(tk.END, line + '\n')
+        
+        # Make text widget read-only
+        text_widget.config(state='disabled')
+        
+        # Create instructions label
+        instructions = tk.Label(fullscreen_window, 
+                               text="Press ESC or click anywhere to exit fullscreen",
+                               font=('Arial', 10),
+                               bg=bg_color,
+                               fg='#888888')
+        instructions.place(relx=0.5, rely=0.95, anchor='center')
+        
+        # Bind escape key and click to exit fullscreen
+        def exit_fullscreen(event=None):
+            fullscreen_window.destroy()
+        
+        fullscreen_window.bind('<Escape>', exit_fullscreen)
+        fullscreen_window.bind('<Button-1>', exit_fullscreen)
+        text_widget.bind('<Button-1>', exit_fullscreen)
+        
+        # Focus the window
+        fullscreen_window.focus_force()
 
 
 def main():
