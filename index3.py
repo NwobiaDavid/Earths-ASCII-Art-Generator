@@ -10,7 +10,7 @@ class ASCIIGeneratorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Earths ASCII Art Generator")
-        self.root.geometry("500x300")
+        self.root.geometry("500x400")
         self.root.resizable(True, True)
         
         # Initialize colorama
@@ -32,11 +32,34 @@ class ASCIIGeneratorGUI:
         self.path_label = tk.Label(main_frame, text="No image selected", fg="gray")
         self.path_label.pack(pady=5)
         
+        # Detail control frame
+        detail_frame = tk.Frame(main_frame)
+        detail_frame.pack(pady=10)
+        
+        tk.Label(detail_frame, text="Detail Level (columns):", font=("Arial", 10)).pack(side=tk.LEFT, padx=5)
+        
+        # Detail slider
+        self.detail_var = tk.IntVar(value=120)
+        self.detail_slider = tk.Scale(detail_frame, from_=50, to=500, orient=tk.HORIZONTAL, 
+                                       variable=self.detail_var, length=200)
+        self.detail_slider.pack(side=tk.LEFT, padx=5)
+        
+        self.detail_label = tk.Label(detail_frame, text="120", font=("Arial", 10, "bold"))
+        self.detail_label.pack(side=tk.LEFT, padx=5)
+        
+        # Update label when slider moves
+        self.detail_slider.config(command=self.update_detail_label)
+        
+        # Info label
+        info_label = tk.Label(main_frame, text="Higher values = more detail (but slower)", 
+                             fg="gray", font=("Arial", 8))
+        info_label.pack()
+        
         # Buttons frame
         btn_frame = tk.Frame(main_frame)
         btn_frame.pack(pady=20)
         
-         # Select image button (light yellow)
+        # Select image button (light yellow)
         self.select_btn = tk.Button(btn_frame, text="Select Image", command=self.select_image, 
                                    bg="#FFD700", fg="black", padx=20, font=("Arial", 10, "bold"))
         self.select_btn.pack(side=tk.LEFT, padx=5)
@@ -47,15 +70,16 @@ class ASCIIGeneratorGUI:
         self.generate_btn.pack(side=tk.LEFT, padx=5)
         
         # Instructions
-        instructions = tk.Label(main_frame, text="Select an image and click 'Generate ASCII Art'\nOutput will appear in the terminal", justify=tk.LEFT)
-        instructions.pack(pady=20)
+        instructions = tk.Label(main_frame, text="Select an image, adjust detail level, then generate\nOutput will appear in the terminal", 
+                               justify=tk.LEFT, font=("Arial", 9))
+        instructions.pack(pady=10)
         
         # Terminal output frame
         terminal_frame = tk.LabelFrame(main_frame, text="Terminal Output Preview", padx=10, pady=10)
         terminal_frame.pack(fill=tk.BOTH, expand=True, pady=10)
         
         # Text widget for preview
-        self.text_widget = tk.Text(terminal_frame, wrap=tk.NONE, bg="black", fg="white", font=("Courier", 8))
+        self.text_widget = tk.Text(terminal_frame, wrap=tk.NONE, bg="black", fg="white", font=("Courier", 6))
         self.text_widget.pack(fill=tk.BOTH, expand=True)
         
         # Scrollbars
@@ -68,6 +92,9 @@ class ASCIIGeneratorGUI:
         # Status bar
         self.status = tk.Label(self.root, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
         self.status.pack(side=tk.BOTTOM, fill=tk.X)
+    
+    def update_detail_label(self, value):
+        self.detail_label.config(text=str(int(float(value))))
         
     def select_image(self):
         file_path = filedialog.askopenfilename(
@@ -92,53 +119,29 @@ class ASCIIGeneratorGUI:
             return
             
         try:
-            # Generate ASCII art
-            my_art = AsciiArt.from_image(self.image_path)
+            self.status.config(text="Generating... Please wait")
+            self.root.update()
             
-            # Calculate square dimensions with 1 to 1.5 ratio (height significantly less than width)
-            columns = 100  # Base number of columns
-            width_ratio = 2.0  # Character width ratio
+            # Get detail level from slider
+            columns = self.detail_var.get()
+            
+            # Generate ASCII art with specified detail level
+            my_art = AsciiArt.from_image(self.image_path)
             
             # Capture the output that would go to terminal
             f = io.StringIO()
             with redirect_stdout(f):
-                my_art.to_terminal(columns=columns, width_ratio=width_ratio)
+                my_art.to_terminal(columns=columns)
             output = f.getvalue()
-            
-            # Process output to make it square with 1:1.5 ratio
-            lines = output.split('\n')
-            max_line_length = max(len(line) for line in lines) if lines else 0
-            
-            # Calculate target height with 1 to 1.5 ratio (height should be significantly less than width)
-            # For example, if width is 100, height should be around 67 (100/1.5 ≈ 67)
-            target_ratio = 1.5
-            target_rows = int(max_line_length / target_ratio)
-            
-            # Adjust the number of rows to match the target
-            if len(lines) > target_rows:
-                lines = lines[:target_rows]
-            elif len(lines) < target_rows:
-                # Add empty lines to match the target
-                while len(lines) < target_rows:
-                    lines.append('')
-            
-            # Ensure each line has the same length
-            for i in range(len(lines)):
-                line = lines[i]
-                if len(line) < max_line_length:
-                    lines[i] = line + ' ' * (max_line_length - len(line))
-            
-            # Join the lines back together
-            output = '\n'.join(lines)
             
             # Display in GUI text widget
             self.text_widget.delete(1.0, tk.END)
             self.text_widget.insert(tk.END, output)
             
             # Also print to actual terminal with colors
-            print(output)
+            my_art.to_terminal(columns=columns)
             
-            self.status.config(text=f"Square ASCII art generated successfully! Resolution: {max_line_length}x{len(lines)} (Ratio: ~{max_line_length/len(lines):.2f})")
+            self.status.config(text=f"ASCII art generated successfully with {columns} columns! Check terminal for colored output")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate ASCII art:\n{str(e)}")
             self.status.config(text="Error occurred")
